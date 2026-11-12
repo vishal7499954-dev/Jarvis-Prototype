@@ -9,13 +9,22 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.core.app.ActivityCompat
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
     private lateinit var status: TextView
     private lateinit var startButton: Button
     private lateinit var stopButton: Button
+
+    private val requestMicPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                startListening()
+            } else {
+                Toast.makeText(this, "Microphone permission is required.", Toast.LENGTH_LONG).show()
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -32,7 +41,9 @@ class MainActivity : ComponentActivity() {
             addView(TextView(this@MainActivity).apply {
                 text = "JARVIS PROTOTYPE"; textSize = 25f
             })
-            addView(status); addView(startButton); addView(stopButton)
+            addView(status)
+            addView(startButton)
+            addView(stopButton)
         }
         setContentView(layout)
         startButton.setOnClickListener { requestMicAndStart() }
@@ -42,8 +53,10 @@ class MainActivity : ComponentActivity() {
     private fun requestMicAndStart() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_MIC)
-        } else startListening()
+            requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
+        } else {
+            startListening()
+        }
     }
 
     private fun startListening() {
@@ -64,12 +77,4 @@ class MainActivity : ComponentActivity() {
         startButton.isEnabled = true
         stopButton.isEnabled = false
     }
-
-    override fun onRequestPermissionsResult(code: Int, permissions: Array<out String>, results: IntArray) {
-        super.onRequestPermissionsResult(code, permissions, results)
-        if (code == REQUEST_MIC && results.firstOrNull() == PackageManager.PERMISSION_GRANTED) startListening()
-        else if (code == REQUEST_MIC) Toast.makeText(this, "Microphone permission is required.", Toast.LENGTH_LONG).show()
-    }
-
-    companion object { private const val REQUEST_MIC = 100 }
 }
