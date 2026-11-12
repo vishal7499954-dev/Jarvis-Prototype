@@ -1,9 +1,10 @@
+import java.net.URL
+import java.util.zip.ZipFile
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
-import java.net.URL
-import java.util.zip.ZipFile
 
 val generatedVoskAssets = layout.buildDirectory.dir("generated/voskAssets")
 val voskModelDir = generatedVoskAssets.map { it.dir("model") }
@@ -42,6 +43,7 @@ val downloadVoskModel by tasks.registering {
         unpackDir.copyRecursively(targetDir, overwrite = true)
     }
 }
+
 android {
     namespace = "com.jarvis.prototype"
     compileSdk = 35
@@ -59,8 +61,11 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
 }
+
 tasks.named("preBuild").configure { dependsOn(downloadVoskModel) }
+
 dependencies {
     implementation("com.alphacephei:vosk-android:0.3.47")
     implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.activity:activity-ktx:1.9.3")
 }
