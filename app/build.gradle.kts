@@ -1,0 +1,66 @@
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+}
+import java.net.URL
+import java.util.zip.ZipFile
+
+val generatedVoskAssets = layout.buildDirectory.dir("generated/voskAssets")
+val voskModelDir = generatedVoskAssets.map { it.dir("model") }
+val downloadVoskModel by tasks.registering {
+    outputs.dir(voskModelDir)
+    doLast {
+        val targetDir = voskModelDir.get().asFile
+        if (targetDir.resolve("am").exists() && targetDir.resolve("conf").exists()) return@doLast
+        targetDir.deleteRecursively()
+        targetDir.mkdirs()
+        val zipFile = layout.buildDirectory.file("vosk-model-small-en-us-0.15.zip").get().asFile
+        zipFile.parentFile.mkdirs()
+        URL("https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip").openStream().use { input ->
+            zipFile.outputStream().use { output -> input.copyTo(output) }
+        }
+        val unpackDir = layout.buildDirectory.dir("vosk-unpacked").get().asFile
+        unpackDir.deleteRecursively()
+        unpackDir.mkdirs()
+        ZipFile(zipFile).use { zip ->
+            val entries = zip.entries()
+            while (entries.hasMoreElements()) {
+                val entry = entries.nextElement()
+                val prefix = "vosk-model-small-en-us-0.15/"
+                if (!entry.name.startsWith(prefix)) continue
+                val relative = entry.name.removePrefix(prefix)
+                if (relative.isBlank()) continue
+                val out = unpackDir.resolve(relative)
+                if (entry.isDirectory) out.mkdirs() else {
+                    out.parentFile.mkdirs()
+                    zip.getInputStream(entry).use { input ->
+                        out.outputStream().use { output -> input.copyTo(output) }
+                    }
+                }
+            }
+        }
+        unpackDir.copyRecursively(targetDir, overwrite = true)
+    }
+}
+android {
+    namespace = "com.jarvis.prototype"
+    compileSdk = 35
+    defaultConfig {
+        applicationId = "com.jarvis.prototype"
+        minSdk = 26
+        targetSdk = 32
+        versionCode = 1
+        versionName = "0.1.0"
+    }
+    sourceSets["main"].assets.srcDir(generatedVoskAssets)
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = "17" }
+}
+tasks.named("preBuild").configure { dependsOn(downloadVoskModel) }
+dependencies {
+    implementation("com.alphacephei:vosk-android:0.3.47")
+    implementation("androidx.core:core-ktx:1.15.0")
+}
