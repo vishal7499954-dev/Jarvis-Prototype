@@ -46,8 +46,10 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> stopListening()
-            ACTION_START -> {
-                startForeground(NOTIFICATION_ID, notification("Loading improved offline English model…"))
+            ACTION_START, null -> {
+                // A sticky service can be recreated by Android with a null intent.
+                // Re-enter foreground immediately before reopening the microphone.
+                startForeground(NOTIFICATION_ID, notification("Restarting offline listening…"))
                 startListening()
             }
         }
