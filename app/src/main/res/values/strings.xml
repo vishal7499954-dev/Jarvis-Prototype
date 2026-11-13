@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="jarvis_accessibility_description">Allows Jarvis to perform requested system actions such as opening Settings. This version does not read screen content.</string>
+</resources>
