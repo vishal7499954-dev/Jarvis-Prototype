@@ -20,6 +20,8 @@ import org.vosk.Recognizer
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.concurrent.atomic.AtomicBoolean
 
 class WakeWordService : Service(), TextToSpeech.OnInitListener {
@@ -88,11 +90,13 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                         if (!commandMode) {
                             val wakeText = result.optString("text")
                             if (wakeText.contains("jarvis", ignoreCase = true)) {
+                                addHistoryEntry("You", "Jarvis")
                                 beginCommandListening()
                             }
                         } else {
                             val transcript = bestTranscript(result)
                             if (transcript.isNotBlank()) {
+                                addHistoryEntry("You", transcript)
                                 updateNotification("Heard command: $transcript")
                                 switchToWakeWordMode()
                             }
@@ -100,6 +104,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                     }
 
                     if (commandMode && System.currentTimeMillis() - commandStartedAt > COMMAND_TIMEOUT_MS) {
+                        addHistoryEntry("Jarvis", "I did not hear a command.")
                         updateNotification("No command heard. Listening for Jarvis again")
                         switchToWakeWordMode()
                     }
@@ -141,6 +146,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
             setMaxAlternatives(3)
         }
         speaking.set(true)
+        addHistoryEntry("Jarvis", "Hello sir")
         android.os.Handler(mainLooper).post {
             if (ttsReady) {
                 tts?.speak("Hello sir", TextToSpeech.QUEUE_FLUSH, null, GREETING_ID)
@@ -232,6 +238,17 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
         stopSelf()
     }
 
+    private fun addHistoryEntry(speaker: String, message: String) {
+        val prefs = getSharedPreferences(HISTORY_PREFS, MODE_PRIVATE)
+        val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+        val previous = prefs.getString(HISTORY_KEY, "").orEmpty()
+        val entry = "[$time] $speaker: $message"
+        val combined = if (previous.isBlank()) entry else "$previous\n$entry"
+        val lines = combined.lines().takeLast(60).joinToString("\n")
+        prefs.edit().putString(HISTORY_KEY, lines).apply()
+        sendBroadcast(Intent(ACTION_HISTORY_UPDATE).setPackage(packageName))
+    }
+
     private fun updateNotification(message: String) {
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
             .notify(NOTIFICATION_ID, notification(message))
@@ -269,6 +286,9 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
     companion object {
         const val ACTION_START = "com.jarvis.prototype.START"
         const val ACTION_STOP = "com.jarvis.prototype.STOP"
+        const val ACTION_HISTORY_UPDATE = "com.jarvis.prototype.HISTORY_UPDATE"
+        const val HISTORY_PREFS = "jarvis_conversation_history"
+        const val HISTORY_KEY = "entries"
         private const val CHANNEL_ID = "jarvis_listener"
         private const val NOTIFICATION_ID = 41
         private const val SAMPLE_RATE = 16000
