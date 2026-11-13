@@ -1,31 +1,59 @@
 package com.jarvis.prototype
 
 import android.Manifest
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.media.AudioFormat
+import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Bundle
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import org.json.JSONObject
+import org.vosk.Model
+import org.vosk.Recognizer
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileOutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : ComponentActivity() {
     private lateinit var status: TextView
     private lateinit var sampleCountText: TextView
+    private lateinit var historyText: TextView
     private lateinit var startButton: Button
     private lateinit var stopButton: Button
-    private lateinit var recordSampleButton: Button
-    private lateinit var finishSampleButton: Button
+    private lateinit var sampleButton: Button
+    private lateinit var historyScroll: ScrollView
 
-    private var voiceRecorder: MediaRecorder? = null
-    private var currentSampleFile: File? = null
-    private val sampleDirectory by lazy { File(filesDir, "voice_samples").apply { mkdirs() } }
+    @Volatile private var sampleRecording = false
+    private val sampleStop = AtomicBoolean(false)
+    private var sampleThread: Thread? = null
     private var isListening = false
+    private val sampleDirectory by lazy { File(filesDir, "voice_samples").apply { mkdirs() } }
+
+    private val historyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == WakeWordService.ACTION_HISTORY_UPDATE) {
+                refreshHistory()
+            }
+        }
+    }
 
     private val requestMicPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -36,51 +64,87 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(28), dp(22), dp(18))
+        }
+        root.addView(TextView(this).apply {
+            text = "JARVIS PROTOTYPE"
+            textSize = 25f
+        })
         status = TextView(this).apply {
-            text = "Ready. Record 10–20 samples of yourself saying Jarvis, or start listening."
-            textSize = 16f
-            setPadding(0, 20, 0, 16)
+            text = "Ready. Start listening or record a verified Jarvis sample."
+            textSize = 14f
+            setPadding(0, dp(10), 0, dp(8))
         }
-        sampleCountText = TextView(this).apply {
-            textSize = 15f
-            setPadding(0, 8, 0, 12)
-        }
+        root.addView(status)
+
         startButton = Button(this).apply { text = "Start offline listening" }
         stopButton = Button(this).apply { text = "Stop listening"; isEnabled = false }
-        recordSampleButton = Button(this).apply { text = "Record my voice saying Jarvis" }
-        finishSampleButton = Button(this).apply { text = "Stop and save sample"; isEnabled = false }
-
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(32, 40, 32, 32)
-            addView(TextView(this@MainActivity).apply {
-                text = "JARVIS PROTOTYPE"
-                textSize = 25f
-            })
-            addView(status)
-            addView(sampleCountText)
-            addView(recordSampleButton)
-            addView(finishSampleButton)
-            addView(TextView(this@MainActivity).apply {
-                text = "Record one clear 'Jarvis' sample at a time. Aim for 10–20 samples. They stay on this phone and are saved for future wake-word training; recording them does not train Vosk automatically."
-                textSize = 13f
-                setPadding(0, 4, 0, 12)
-            })
-            addView(startButton)
-            addView(stopButton)
+        sampleButton = Button(this).apply { text = "Start voice sample (1/20)" }
+        root.addView(startButton)
+        root.addView(stopButton)
+        root.addView(TextView(this).apply {
+            text = "WAKE-WORD VOICE SAMPLES"
+            textSize = 13f
+            setPadding(0, dp(10), 0, 0)
+        })
+        sampleCountText = TextView(this).apply {
+            textSize = 14f
+            setPadding(0, dp(4), 0, dp(4))
         }
-        setContentView(layout)
-        refreshSampleCount()
+        root.addView(sampleCountText)
+        root.addView(sampleButton)
+        root.addView(TextView(this).apply {
+            text = "Tap Start, say “Jarvis” once, and wait. The offline recognizer will verify the word, stop automatically, and save the sample. Repeat until 20/20."
+            textSize = 12f
+            setPadding(0, dp(2), 0, dp(8))
+        })
 
+        root.addView(TextView(this).apply {
+            text = "CONVERSATION HISTORY"
+            textSize = 14f
+            setPadding(0, dp(8), 0, dp(6))
+        })
+        historyText = TextView(this).apply {
+            textSize = 14f
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            text = "No conversations yet. Start listening and speak to Jarvis."
+        }
+        historyScroll = ScrollView(this).apply {
+            isFillViewport = true
+            addView(historyText)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xFFF1F3F5.toInt())
+                cornerRadius = dp(10).toFloat()
+            }
+        }
+        root.addView(historyScroll, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(190)
+        ))
+        setContentView(root)
+
+        refreshSampleCount()
+        refreshHistory()
         startButton.setOnClickListener { requestMicAndStart() }
         stopButton.setOnClickListener { stopListening() }
-        recordSampleButton.setOnClickListener { startVoiceSample() }
-        finishSampleButton.setOnClickListener { finishVoiceSample() }
+        sampleButton.setOnClickListener { startVerifiedSample() }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        registerReceiver(historyReceiver, IntentFilter(WakeWordService.ACTION_HISTORY_UPDATE))
+        refreshHistory()
+    }
+
+    override fun onStop() {
+        try { unregisterReceiver(historyReceiver) } catch (_: Exception) { }
+        super.onStop()
     }
 
     private fun requestMicAndStart() {
-        if (voiceRecorder != null) {
-            Toast.makeText(this, "Finish saving the voice sample first.", Toast.LENGTH_SHORT).show()
+        if (sampleRecording) {
+            Toast.makeText(this, "Finish the voice sample first.", Toast.LENGTH_SHORT).show()
             return
         }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
@@ -90,13 +154,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startListening() {
+        if (sampleRecording) return
         val intent = Intent(this, WakeWordService::class.java).apply { action = WakeWordService.ACTION_START }
         ContextCompat.startForegroundService(this, intent)
         isListening = true
-        status.text = "Listening offline. Say Jarvis, wait for 'Hello sir', then say your command."
+        status.text = "Listening offline. Say Jarvis, wait for “Hello sir”, then say your command."
         startButton.isEnabled = false
         stopButton.isEnabled = true
-        recordSampleButton.isEnabled = false
+        sampleButton.isEnabled = false
     }
 
     private fun stopListening() {
@@ -105,83 +170,186 @@ class MainActivity : ComponentActivity() {
         status.text = "Listening stopped."
         startButton.isEnabled = true
         stopButton.isEnabled = false
-        recordSampleButton.isEnabled = true
+        sampleButton.isEnabled = true
     }
 
-    private fun startVoiceSample() {
-        if (isListening) {
-            Toast.makeText(this, "Stop listening before recording samples.", Toast.LENGTH_SHORT).show()
+    private fun startVerifiedSample() {
+        if (isListening || sampleRecording) {
+            Toast.makeText(this, "Stop background listening before recording a sample.", Toast.LENGTH_SHORT).show()
             return
         }
-        val count = savedSampleCount()
-        if (count >= MAX_SAMPLES) {
-            Toast.makeText(this, "You already have 20 samples. That's enough for this collection.", Toast.LENGTH_LONG).show()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
             return
         }
+        val current = savedSampleCount()
+        if (current >= MAX_SAMPLES) {
+            status.text = "All 20 verified Jarvis samples are saved."
+            return
+        }
+        sampleRecording = true
+        sampleStop.set(false)
+        sampleButton.isEnabled = false
+        status.text = "Sample ${current + 1}/20: listening for you to say “Jarvis”…"
+        sampleThread = Thread({ captureAndVerifySample() }, "JarvisSampleCapture").apply { start() }
+    }
 
-        val file = File(sampleDirectory, "jarvis_sample_${System.currentTimeMillis()}.m4a")
+    private fun captureAndVerifySample() {
+        var audio: AudioRecord? = null
+        var model: Model? = null
+        var recognizer: Recognizer? = null
+        val pcm = ByteArrayOutputStream()
+        var verified = false
+        var failure: String? = null
         try {
-            val recorder = MediaRecorder()
-            recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
-            recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-            recorder.setOutputFile(file.absolutePath)
-            recorder.prepare()
-            recorder.start()
-            voiceRecorder = recorder
-            currentSampleFile = file
-            status.text = "Recording sample ${count + 1}/20. Say 'Jarvis' once, clearly."
-            recordSampleButton.isEnabled = false
-            finishSampleButton.isEnabled = true
+            val modelPath = copyModelFromAssets()
+            model = Model(modelPath)
+            recognizer = Recognizer(model, SAMPLE_RATE.toFloat())
+            val minBuffer = AudioRecord.getMinBufferSize(
+                SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
+            )
+            check(minBuffer > 0) { "Microphone is unavailable" }
+            audio = AudioRecord(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION, SAMPLE_RATE,
+                AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
+                maxOf(minBuffer * 2, 8192)
+            )
+            check(audio.state == AudioRecord.STATE_INITIALIZED) { "Could not open microphone" }
+            audio.startRecording()
+            val buffer = ByteArray(4096)
+            val startedAt = System.currentTimeMillis()
+            while (!sampleStop.get() && System.currentTimeMillis() - startedAt < SAMPLE_TIMEOUT_MS) {
+                val count = audio.read(buffer, 0, buffer.size)
+                if (count <= 0) continue
+                pcm.write(buffer, 0, count)
+                if (recognizer.acceptWaveForm(buffer, count)) {
+                    val text = JSONObject(recognizer.result).optString("text")
+                    if (containsJarvis(text)) {
+                        verified = true
+                        break
+                    }
+                } else {
+                    val partial = JSONObject(recognizer.partialResult).optString("partial")
+                    if (containsJarvis(partial)) {
+                        // Wait for the recognizer to finalize the phrase so the full sample is captured.
+                    }
+                }
+            }
+            if (!verified && !sampleStop.get()) {
+                val finalText = JSONObject(recognizer.finalResult).optString("text")
+                verified = containsJarvis(finalText)
+            }
+            if (verified && pcm.size() > SAMPLE_RATE) {
+                val out = File(sampleDirectory, "jarvis_verified_${System.currentTimeMillis()}.wav")
+                writeWav(out, pcm.toByteArray())
+            } else if (!sampleStop.get()) {
+                failure = "Jarvis was not clearly recognized. Nothing was saved; try again."
+            }
         } catch (e: Exception) {
-            file.delete()
-            releaseVoiceRecorder()
-            status.text = "Could not record sample: ${e.message ?: "microphone error"}"
-        }
-    }
-
-    private fun finishVoiceSample() {
-        val recorder = voiceRecorder ?: return
-        try {
-            recorder.stop()
-            currentSampleFile?.takeIf { it.exists() && it.length() > 1000L }
-                ?: currentSampleFile?.delete()
-            status.text = "Voice sample saved."
-        } catch (_: RuntimeException) {
-            currentSampleFile?.delete()
-            status.text = "Sample was too short. Please record it again."
+            failure = e.message ?: "Could not record sample"
         } finally {
-            releaseVoiceRecorder()
-            recordSampleButton.isEnabled = true
-            finishSampleButton.isEnabled = false
-            refreshSampleCount()
+            try { audio?.stop() } catch (_: Exception) { }
+            audio?.release()
+            recognizer?.close()
+            model?.close()
+            runOnUiThread {
+                sampleRecording = false
+                sampleButton.isEnabled = true
+                refreshSampleCount()
+                status.text = when {
+                    sampleStop.get() -> "Sample recording cancelled."
+                    verified -> "Verified! Sample ${savedSampleCount()}/20 saved."
+                    else -> failure ?: "Sample not saved. Please try again."
+                }
+                updateSampleButton()
+            }
         }
     }
 
-    private fun releaseVoiceRecorder() {
-        try { voiceRecorder?.reset() } catch (_: Exception) { }
-        try { voiceRecorder?.release() } catch (_: Exception) { }
-        voiceRecorder = null
-        currentSampleFile = null
+    private fun containsJarvis(text: String): Boolean =
+        Regex("\\bjarvis\\b", RegexOption.IGNORE_CASE).containsMatchIn(text)
+
+    private fun writeWav(file: File, pcm: ByteArray) {
+        val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
+        header.put("RIFF".toByteArray(Charsets.US_ASCII))
+        header.putInt(36 + pcm.size)
+        header.put("WAVE".toByteArray(Charsets.US_ASCII))
+        header.put("fmt ".toByteArray(Charsets.US_ASCII))
+        header.putInt(16)
+        header.putShort(1)
+        header.putShort(1)
+        header.putInt(SAMPLE_RATE)
+        header.putInt(SAMPLE_RATE * 2)
+        header.putShort(2)
+        header.putShort(16)
+        header.put("data".toByteArray(Charsets.US_ASCII))
+        header.putInt(pcm.size)
+        FileOutputStream(file).use { it.write(header.array()); it.write(pcm) }
+    }
+
+    private fun copyModelFromAssets(): String {
+        val target = File(filesDir, "vosk-model")
+        if (File(target, "am/final.mdl").exists() && File(target, "graph").exists()) return target.absolutePath
+        target.deleteRecursively()
+        target.mkdirs()
+        copyAssetFolder("model", target)
+        check(File(target, "am/final.mdl").exists()) { "Offline English model is missing" }
+        return target.absolutePath
+    }
+
+    private fun copyAssetFolder(path: String, dest: File) {
+        for (entry in assets.list(path) ?: emptyArray()) {
+            val childPath = "$path/$entry"
+            val child = File(dest, entry)
+            val children = assets.list(childPath)
+            if (children != null && children.isNotEmpty()) {
+                child.mkdirs()
+                copyAssetFolder(childPath, child)
+            } else {
+                assets.open(childPath).use { input ->
+                    FileOutputStream(child).use { output -> input.copyTo(output) }
+                }
+            }
+        }
     }
 
     private fun savedSampleCount(): Int =
-        sampleDirectory.listFiles()?.count { it.isFile && it.name.endsWith(".m4a") } ?: 0
+        sampleDirectory.listFiles()?.count { it.isFile && it.name.endsWith(".wav") } ?: 0
 
     private fun refreshSampleCount() {
-        sampleCountText.text = "Saved voice samples: ${savedSampleCount()} / 20"
+        val count = savedSampleCount()
+        sampleCountText.text = "Verified samples saved: $count / 20"
+        updateSampleButton()
     }
 
+    private fun updateSampleButton() {
+        val count = savedSampleCount()
+        sampleButton.text = if (count >= MAX_SAMPLES) "20/20 samples completed"
+            else "Start voice sample (${count + 1}/20)"
+        sampleButton.isEnabled = !sampleRecording && count < MAX_SAMPLES && !isListening
+    }
+
+    private fun refreshHistory() {
+        val prefs = getSharedPreferences(WakeWordService.HISTORY_PREFS, MODE_PRIVATE)
+        val history = prefs.getString(WakeWordService.HISTORY_KEY, "").orEmpty()
+        historyText.text = if (history.isBlank()) {
+            "No conversations yet. Start listening and speak to Jarvis."
+        } else history
+        historyScroll.post { historyScroll.fullScroll(ScrollView.FOCUS_DOWN) }
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
     override fun onDestroy() {
-        if (voiceRecorder != null) {
-            try { voiceRecorder?.stop() } catch (_: Exception) { }
-            currentSampleFile?.delete()
-            releaseVoiceRecorder()
-        }
+        sampleStop.set(true)
+        sampleThread?.interrupt()
         super.onDestroy()
     }
 
     companion object {
         private const val MAX_SAMPLES = 20
+        private const val SAMPLE_RATE = 16000
+        private const val SAMPLE_TIMEOUT_MS = 10000L
     }
 }
