@@ -145,8 +145,8 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
             .replace(Regex("\\s+"), " ")
             .trim()
 
-        when (command) {
-            "open settings", "open the settings" -> {
+        when {
+            command == "open settings" || command == "open the settings" -> {
                 if (JarvisAccessibilityService.openSettings()) {
                     addHistoryEntry("Jarvis", "Opening Settings.")
                     speakResponse("Opening Settings.")
