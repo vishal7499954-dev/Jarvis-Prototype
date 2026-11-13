@@ -27,9 +27,6 @@ import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : ComponentActivity() {
@@ -45,6 +42,7 @@ class MainActivity : ComponentActivity() {
     private val sampleStop = AtomicBoolean(false)
     private var sampleThread: Thread? = null
     private var isListening = false
+    private var permissionForSample = false
     private val sampleDirectory by lazy { File(filesDir, "voice_samples").apply { mkdirs() } }
 
     private val historyReceiver = object : BroadcastReceiver() {
@@ -57,8 +55,10 @@ class MainActivity : ComponentActivity() {
 
     private val requestMicPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) startListening()
-            else Toast.makeText(this, "Microphone permission is required.", Toast.LENGTH_LONG).show()
+            if (granted) {
+                if (permissionForSample) startVerifiedSample() else startListening()
+            } else Toast.makeText(this, "Microphone permission is required.", Toast.LENGTH_LONG).show()
+            permissionForSample = false
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -149,6 +149,7 @@ class MainActivity : ComponentActivity() {
         }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED) {
+            permissionForSample = false
             requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
         } else startListening()
     }
@@ -180,6 +181,7 @@ class MainActivity : ComponentActivity() {
         }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED) {
+            permissionForSample = true
             requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
             return
         }
