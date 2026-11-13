@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : ComponentActivity() {
     private lateinit var status: TextView
+    private lateinit var appInventoryText: TextView
     private lateinit var sampleCountText: TextView
     private lateinit var historyText: TextView
     private lateinit var startButton: Button
@@ -83,6 +84,15 @@ class MainActivity : ComponentActivity() {
             setPadding(0, dp(10), 0, dp(8))
         }
         root.addView(status)
+        appInventoryText = TextView(this).apply {
+            textSize = 13f
+            setPadding(0, dp(2), 0, dp(6))
+            text = "Scanning installed apps…"
+        }
+        root.addView(appInventoryText)
+        val scanAppsButton = Button(this).apply { text = "Scan installed apps" }
+        root.addView(scanAppsButton)
+        scanAppsButton.setOnClickListener { refreshAppInventory() }
 
         startButton = Button(this).apply { text = "Start offline listening" }
         stopButton = Button(this).apply { text = "Stop listening"; isEnabled = false }
@@ -144,6 +154,7 @@ class MainActivity : ComponentActivity() {
 
         refreshSampleCount()
         refreshHistory()
+        refreshAppInventory()
         startButton.setOnClickListener { requestMicAndStart() }
         stopButton.setOnClickListener { stopListening() }
         accessibilityButton.setOnClickListener {
@@ -369,6 +380,16 @@ class MainActivity : ComponentActivity() {
         sampleButton.text = if (count >= MAX_SAMPLES) "20/20 samples completed"
             else "Start voice sample (${count + 1}/20)"
         sampleButton.isEnabled = !sampleRecording && count < MAX_SAMPLES && !isListening
+    }
+
+    private fun refreshAppInventory() {
+        val apps = AppCatalog.scan(this)
+        val preview = apps.take(8).joinToString(", ") { it.label }
+        appInventoryText.text = if (apps.isEmpty()) {
+            "No launchable apps found. Check app visibility permission."
+        } else {
+            "Found ${apps.size} launchable apps. Examples: $preview"
+        }
     }
 
     private fun refreshHistory() {
