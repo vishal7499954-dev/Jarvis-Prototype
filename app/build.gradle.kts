@@ -79,6 +79,9 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    lint {
+        disable += "ExpiredTargetSdkVersion"
+    }
 }
 
 tasks.named("preBuild").configure { dependsOn(downloadVoskModel) }
