@@ -1,11 +1,13 @@
 package com.jarvis.prototype
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Intent
+import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
 
 /**
- * Minimal accessibility bridge for user-requested global phone actions.
- * This first version does not inspect screen contents or collect UI events.
+ * Minimal accessibility bridge for user-requested phone actions.
+ * This service does not inspect screen contents or collect UI events.
  */
 class JarvisAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
@@ -26,8 +28,13 @@ class JarvisAccessibilityService : AccessibilityService() {
         @Volatile private var activeService: JarvisAccessibilityService? = null
 
         fun openSettings(): Boolean {
+            val service = activeService ?: return false
             return try {
-                activeService?.performGlobalAction(AccessibilityService.GLOBAL_ACTION_SETTINGS) ?: false
+                val intent = Intent(Settings.ACTION_SETTINGS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                service.startActivity(intent)
+                true
             } catch (_: Exception) {
                 false
             }
