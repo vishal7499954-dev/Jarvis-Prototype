@@ -97,7 +97,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                             val transcript = bestTranscript(result)
                             if (transcript.isNotBlank()) {
                                 addHistoryEntry("You", transcript)
-                                updateNotification("Heard command: $transcript")
+                                executeCommand(transcript)
                                 switchToWakeWordMode()
                             }
                         }
@@ -135,6 +135,33 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
             if (bestText.isNotBlank()) return bestText.trim()
         }
         return result.optString("text").trim()
+    }
+
+    private fun executeCommand(transcript: String) {
+        val command = transcript.lowercase(Locale.US)
+            .replace(Regex("[^a-z0-9 ]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+        when (command) {
+            "open settings", "open the settings" -> {
+                try {
+                    val intent = Intent(android.provider.Settings.ACTION_SETTINGS).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(intent)
+                    addHistoryEntry("Jarvis", "Opening Settings.")
+                    updateNotification("Opening phone Settings")
+                } catch (e: Exception) {
+                    addHistoryEntry("Jarvis", "I could not open Settings.")
+                    updateNotification("Could not open Settings")
+                }
+            }
+            else -> {
+                addHistoryEntry("Jarvis", "I heard: $transcript. That action is not available yet.")
+                updateNotification("Recognized: $transcript — action not added yet")
+            }
+        }
     }
 
     private fun beginCommandListening() {
