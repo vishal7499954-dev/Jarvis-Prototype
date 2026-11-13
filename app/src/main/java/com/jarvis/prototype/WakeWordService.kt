@@ -147,16 +147,12 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
 
         when (command) {
             "open settings", "open the settings" -> {
-                try {
-                    val intent = Intent(android.provider.Settings.ACTION_SETTINGS).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    startActivity(intent)
+                if (JarvisAccessibilityService.openSettings()) {
                     addHistoryEntry("Jarvis", "Opening Settings.")
                     updateNotification("Opening phone Settings")
-                } catch (e: Exception) {
-                    addHistoryEntry("Jarvis", "I could not open Settings.")
-                    updateNotification("Could not open Settings")
+                } else {
+                    addHistoryEntry("Jarvis", "Please enable Jarvis Accessibility Control in Android Settings first.")
+                    updateNotification("Enable Jarvis Accessibility Control to open Settings by voice")
                 }
             }
             else -> {
