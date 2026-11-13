@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.provider.Settings
 import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
@@ -36,6 +37,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var startButton: Button
     private lateinit var stopButton: Button
     private lateinit var sampleButton: Button
+    private lateinit var accessibilityButton: Button
     private lateinit var historyScroll: ScrollView
 
     @Volatile private var sampleRecording = false
@@ -84,6 +86,15 @@ class MainActivity : ComponentActivity() {
         sampleButton = Button(this).apply { text = "Start voice sample (1/20)" }
         root.addView(startButton)
         root.addView(stopButton)
+        accessibilityButton = Button(this).apply {
+            text = "Enable background control"
+        }
+        root.addView(accessibilityButton)
+        root.addView(TextView(this).apply {
+            text = "Enable Jarvis under Installed apps in Accessibility settings to allow voice-triggered system actions while the app is in the background."
+            textSize = 12f
+            setPadding(0, dp(2), 0, dp(8))
+        })
         root.addView(TextView(this).apply {
             text = "WAKE-WORD VOICE SAMPLES"
             textSize = 13f
@@ -128,6 +139,13 @@ class MainActivity : ComponentActivity() {
         refreshHistory()
         startButton.setOnClickListener { requestMicAndStart() }
         stopButton.setOnClickListener { stopListening() }
+        accessibilityButton.setOnClickListener {
+            try {
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            } catch (_: Exception) {
+                Toast.makeText(this, "Could not open Accessibility settings.", Toast.LENGTH_LONG).show()
+            }
+        }
         sampleButton.setOnClickListener { startVerifiedSample() }
     }
 
