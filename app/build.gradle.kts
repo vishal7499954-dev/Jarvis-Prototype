@@ -12,12 +12,12 @@ val downloadVoskModel by tasks.registering {
     outputs.dir(voskModelDir)
     doLast {
         val targetDir = voskModelDir.get().asFile
-        if (targetDir.resolve("am").exists() && targetDir.resolve("conf").exists()) return@doLast
+        if (targetDir.resolve("am/final.mdl").exists() && targetDir.resolve("graph").exists()) return@doLast
         targetDir.deleteRecursively()
         targetDir.mkdirs()
-        val zipFile = layout.buildDirectory.file("vosk-model-small-en-us-0.15.zip").get().asFile
+        val zipFile = layout.buildDirectory.file("vosk-model-en-us-0.22-lgraph.zip").get().asFile
         zipFile.parentFile.mkdirs()
-        URL("https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip").openStream().use { input ->
+        URL("https://alphacephei.com/vosk/models/vosk-model-en-us-0.22-lgraph.zip").openStream().use { input ->
             zipFile.outputStream().use { output -> input.copyTo(output) }
         }
         val unpackDir = layout.buildDirectory.dir("vosk-unpacked").get().asFile
@@ -27,7 +27,7 @@ val downloadVoskModel by tasks.registering {
             val entries = zip.entries()
             while (entries.hasMoreElements()) {
                 val entry = entries.nextElement()
-                val prefix = "vosk-model-small-en-us-0.15/"
+                val prefix = "vosk-model-en-us-0.22-lgraph/"
                 if (!entry.name.startsWith(prefix)) continue
                 val relative = entry.name.removePrefix(prefix)
                 if (relative.isBlank()) continue
@@ -40,6 +40,7 @@ val downloadVoskModel by tasks.registering {
                 }
             }
         }
+        check(File(unpackDir, "am/final.mdl").exists()) { "Downloaded Vosk model archive is incomplete" }
         unpackDir.copyRecursively(targetDir, overwrite = true)
     }
 }
@@ -51,8 +52,8 @@ android {
         applicationId = "com.jarvis.prototype"
         minSdk = 26
         targetSdk = 32
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
     }
     sourceSets["main"].assets.srcDir(generatedVoskAssets)
     compileOptions {
