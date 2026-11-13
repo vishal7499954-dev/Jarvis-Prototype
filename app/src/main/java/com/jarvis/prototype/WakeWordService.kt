@@ -157,6 +157,12 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                     updateNotification("Enable Jarvis Accessibility Control to open Settings by voice")
                 }
             }
+            command.startsWith("open ") -> {
+                val response = AppCatalog.open(this, command.removePrefix("open ").trim())
+                addHistoryEntry("Jarvis", response)
+                speakResponse(response)
+                updateNotification(response)
+            }
             else -> {
                 addHistoryEntry("Jarvis", "I heard: $transcript. That action is not available yet.")
                 speakResponse("I heard $transcript. That command is not available yet.")
@@ -173,7 +179,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
         recognizer = Recognizer(
             model ?: error("Offline model is not loaded"),
             SAMPLE_RATE.toFloat(),
-            COMMAND_GRAMMAR
+            AppCatalog.commandGrammar(this)
         ).apply {
             setMaxAlternatives(5)
         }
