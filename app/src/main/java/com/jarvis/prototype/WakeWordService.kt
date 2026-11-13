@@ -14,12 +14,14 @@ import android.os.PowerManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import androidx.core.app.NotificationCompat
+import org.json.JSONObject
 import org.vosk.Model
 import org.vosk.Recognizer
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.sqrt
 
 class WakeWordService : Service(), TextToSpeech.OnInitListener {
     private val running = AtomicBoolean(false)
@@ -31,6 +33,9 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
     private var worker: Thread? = null
     private var wakeLock: PowerManager.WakeLock? = null
     @Volatile private var ttsReady = false
+    @Volatile private var commandMode = false
+    @Volatile private var commandStartedAt = 0L
+    @Volatile private var inputGain = 1.0
 
     override fun onCreate() {
         super.onCreate()
@@ -54,23 +59,57 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
         worker = Thread {
             try {
                 model = Model(copyModelFromAssets())
-                recognizer = Recognizer(model, SAMPLE_RATE.toFloat(), """["jarvis", "[unk]"]""")
+                switchToWakeWordMode()
                 val minBuffer = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
                 check(minBuffer > 0) { "Audio recorder is unavailable" }
-                val audio = AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, SAMPLE_RATE,
-                    AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(minBuffer * 2, 8192))
+                val audio = AudioRecord(
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION, SAMPLE_RATE,
+                    AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
+                    maxOf(minBuffer * 2, 8192)
+                )
                 check(audio.state == AudioRecord.STATE_INITIALIZED) { "Could not start microphone" }
                 recorder = audio
                 audio.startRecording()
                 acquireWakeLock()
-                updateNotification("Listening offline — say Jarvis")
+
+                // Measure the room's background level and choose a modest input boost.
+                updateNotification("Calibrating microphone… stay quiet for 2 seconds")
+                val calibrationBuffer = ByteArray(4096)
+                var energy = 0.0
+                var samples = 0
+                repeat(16) {
+                    val count = audio.read(calibrationBuffer, 0, calibrationBuffer.size)
+                    if (count > 1) {
+                        energy += pcmRms(calibrationBuffer, count) * pcmRms(calibrationBuffer, count)
+                        samples++
+                    }
+                }
+                val ambientRms = if (samples > 0) sqrt(energy / samples) else 0.0
+                inputGain = (1900.0 / maxOf(ambientRms, 650.0)).coerceIn(1.0, 2.0)
+                updateNotification("Mic calibrated. Listening offline — say Jarvis")
+
                 val buffer = ByteArray(4096)
                 while (running.get()) {
-                    if (speaking.get()) { Thread.sleep(80); continue }
+                    if (speaking.get()) { Thread.sleep(60); continue }
                     val count = audio.read(buffer, 0, buffer.size)
-                    if (count > 0) {
-                        val result = recognizer?.let { r -> if (r.acceptWaveForm(buffer, count)) r.result else "" } ?: ""
-                        if (result.contains("jarvis", ignoreCase = true)) greet()
+                    if (count <= 0) continue
+                    applyGain(buffer, count, inputGain)
+                    val current = recognizer ?: continue
+                    if (current.acceptWaveForm(buffer, count)) {
+                        val result = current.result
+                        if (!commandMode && result.contains("jarvis", ignoreCase = true)) {
+                            beginCommandListening()
+                        } else if (commandMode) {
+                            val transcript = JSONObject(result).optString("text").trim()
+                            if (transcript.isNotEmpty()) {
+                                updateNotification("Heard command: $transcript")
+                                switchToWakeWordMode()
+                            }
+                        }
+                    }
+                    if (commandMode && System.currentTimeMillis() - commandStartedAt > COMMAND_TIMEOUT_MS) {
+                        updateNotification("No command heard. Listening for Jarvis again")
+                        switchToWakeWordMode()
                     }
                 }
             } catch (e: Exception) {
@@ -81,12 +120,27 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
         }.apply { name = "JarvisOfflineWakeWord"; start() }
     }
 
-    private fun greet() {
-        if (!speaking.compareAndSet(false, true)) return
+    private fun beginCommandListening() {
+        if (commandMode) return
+        commandMode = true
+        commandStartedAt = System.currentTimeMillis()
+        recognizer?.close()
+        recognizer = Recognizer(model, SAMPLE_RATE.toFloat())
+        if (!speaking.compareAndSet(false, true)) speaking.set(false)
         android.os.Handler(mainLooper).post {
-            if (ttsReady) tts?.speak("Hello sir", TextToSpeech.QUEUE_FLUSH, null, "jarvis-greeting")
-            else speaking.set(false)
+            if (ttsReady) {
+                tts?.speak("Hello sir", TextToSpeech.QUEUE_FLUSH, null, GREETING_ID)
+            } else {
+                speaking.set(false)
+            }
         }
+        updateNotification("Hello sir. Listening for your command…")
+    }
+
+    private fun switchToWakeWordMode() {
+        commandMode = false
+        recognizer?.close()
+        recognizer = Recognizer(model, SAMPLE_RATE.toFloat(), """["jarvis", "[unk]"]""")
     }
 
     override fun onInit(status: Int) {
@@ -96,10 +150,35 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                 languageResult != TextToSpeech.LANG_NOT_SUPPORTED
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(id: String?) = Unit
-                override fun onDone(id: String?) { speaking.set(false) }
+                override fun onDone(id: String?) { if (id == GREETING_ID) speaking.set(false) }
                 @Deprecated("Deprecated in Java")
                 override fun onError(id: String?) { speaking.set(false) }
             })
+        }
+    }
+
+    private fun pcmRms(data: ByteArray, count: Int): Double {
+        var sum = 0.0
+        var n = 0
+        var i = 0
+        while (i + 1 < count) {
+            val sample = ((data[i + 1].toInt() shl 8) or (data[i].toInt() and 0xff)).toShort().toInt()
+            sum += sample.toDouble() * sample
+            n++
+            i += 2
+        }
+        return if (n == 0) 0.0 else sqrt(sum / n)
+    }
+
+    private fun applyGain(data: ByteArray, count: Int, gain: Double) {
+        if (gain <= 1.01) return
+        var i = 0
+        while (i + 1 < count) {
+            val sample = ((data[i + 1].toInt() shl 8) or (data[i].toInt() and 0xff)).toShort().toInt()
+            val boosted = (sample * gain).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+            data[i] = (boosted and 0xff).toByte()
+            data[i + 1] = ((boosted shr 8) and 0xff).toByte()
+            i += 2
         }
     }
 
@@ -179,5 +258,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
         private const val CHANNEL_ID = "jarvis_listener"
         private const val NOTIFICATION_ID = 41
         private const val SAMPLE_RATE = 16000
+        private const val COMMAND_TIMEOUT_MS = 12000L
+        private const val GREETING_ID = "jarvis-greeting"
     }
 }
