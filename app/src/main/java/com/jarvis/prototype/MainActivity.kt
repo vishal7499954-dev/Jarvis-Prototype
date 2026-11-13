@@ -242,7 +242,7 @@ class MainActivity : ComponentActivity() {
                 val finalText = JSONObject(recognizer.finalResult).optString("text")
                 verified = containsJarvis(finalText)
             }
-            if (verified && pcm.size() > SAMPLE_RATE) {
+            if (verified && pcm.size() > SAMPLE_RATE / 2) {
                 val out = File(sampleDirectory, "jarvis_verified_${System.currentTimeMillis()}.wav")
                 writeWav(out, pcm.toByteArray())
             } else if (!sampleStop.get()) {
@@ -321,7 +321,7 @@ class MainActivity : ComponentActivity() {
 
     private fun refreshSampleCount() {
         val count = savedSampleCount()
-        sampleCountText.text = "Verified samples saved: $count / 20"
+        sampleCountText.text = "Jarvis-recognized samples saved: $count / 20"
         updateSampleButton()
     }
 
