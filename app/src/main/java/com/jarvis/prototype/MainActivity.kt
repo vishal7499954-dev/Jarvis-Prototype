@@ -1,6 +1,7 @@
 package com.jarvis.prototype
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -15,6 +16,7 @@ import android.media.MediaRecorder
 import android.os.Bundle
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -93,6 +95,9 @@ class MainActivity : ComponentActivity() {
         val scanAppsButton = Button(this).apply { text = "Scan installed apps" }
         root.addView(scanAppsButton)
         scanAppsButton.setOnClickListener { refreshAppInventory() }
+        val teachAliasButton = Button(this).apply { text = "Teach Jarvis an app nickname" }
+        root.addView(teachAliasButton)
+        teachAliasButton.setOnClickListener { showAppAliasDialog() }
 
         startButton = Button(this).apply { text = "Start offline listening" }
         stopButton = Button(this).apply { text = "Stop listening"; isEnabled = false }
@@ -382,9 +387,34 @@ class MainActivity : ComponentActivity() {
         sampleButton.isEnabled = !sampleRecording && count < MAX_SAMPLES && !isListening
     }
 
+    private fun showAppAliasDialog() {
+        val aliasInput = EditText(this).apply { hint = "Nickname you will say, e.g. Instagram" }
+        val appInput = EditText(this).apply { hint = "Installed app name, e.g. InstaPro" }
+        val fields = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+            addView(aliasInput)
+            addView(appInput)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Teach Jarvis an app nickname")
+            .setMessage("Tell Jarvis what name you will say and which installed app it should open.")
+            .setView(fields)
+            .setPositiveButton("Save") { _, _ ->
+                val saved = AppCatalog.saveAlias(this, aliasInput.text.toString(), appInput.text.toString())
+                Toast.makeText(
+                    this,
+                    if (saved) "Nickname saved. Restart listening to use it." else "App not found. Enter its exact installed name.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     private fun refreshAppInventory() {
         val apps = AppCatalog.scan(this)
-        val preview = apps.take(8).joinToString(", ") { it.label }
+        val preview = apps.take(5).joinToString(", ") { "${it.label} (${it.packageName})" }
         appInventoryText.text = if (apps.isEmpty()) {
             "No launchable apps found. Check app visibility permission."
         } else {
