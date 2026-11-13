@@ -27,7 +27,7 @@ class JarvisAccessibilityService : AccessibilityService() {
 
         fun openSettings(): Boolean {
             return try {
-                activeService?.performGlobalAction(GLOBAL_ACTION_SETTINGS) ?: false
+                activeService?.performGlobalAction(AccessibilityService.GLOBAL_ACTION_SETTINGS) ?: false
             } catch (_: Exception) {
                 false
             }
