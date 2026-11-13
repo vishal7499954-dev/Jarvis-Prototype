@@ -149,14 +149,17 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
             "open settings", "open the settings" -> {
                 if (JarvisAccessibilityService.openSettings()) {
                     addHistoryEntry("Jarvis", "Opening Settings.")
+                    speakResponse("Opening Settings.")
                     updateNotification("Opening phone Settings")
                 } else {
                     addHistoryEntry("Jarvis", "Please enable Jarvis Accessibility Control in Android Settings first.")
+                    speakResponse("Please enable Jarvis Accessibility Control first.")
                     updateNotification("Enable Jarvis Accessibility Control to open Settings by voice")
                 }
             }
             else -> {
                 addHistoryEntry("Jarvis", "I heard: $transcript. That action is not available yet.")
+                speakResponse("I heard $transcript. That command is not available yet.")
                 updateNotification("Recognized: $transcript — action not added yet")
             }
         }
@@ -174,15 +177,8 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
         ).apply {
             setMaxAlternatives(5)
         }
-        speaking.set(true)
         addHistoryEntry("Jarvis", "Hello sir")
-        android.os.Handler(mainLooper).post {
-            if (ttsReady) {
-                tts?.speak("Hello sir", TextToSpeech.QUEUE_FLUSH, null, GREETING_ID)
-            } else {
-                speaking.set(false)
-            }
-        }
+        speakResponse("Hello sir")
         updateNotification("Hello sir. Listening for your command…")
     }
 
@@ -204,11 +200,23 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(id: String?) = Unit
                 override fun onDone(id: String?) {
-                    if (id == GREETING_ID) speaking.set(false)
+                    speaking.set(false)
                 }
                 @Deprecated("Deprecated in Java")
                 override fun onError(id: String?) { speaking.set(false) }
             })
+        }
+    }
+
+    private fun speakResponse(message: String) {
+        speaking.set(true)
+        android.os.Handler(mainLooper).post {
+            if (ttsReady && tts != null) {
+                val result = tts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "jarvis-response-${System.currentTimeMillis()}")
+                if (result == TextToSpeech.ERROR) speaking.set(false)
+            } else {
+                speaking.set(false)
+            }
         }
     }
 
