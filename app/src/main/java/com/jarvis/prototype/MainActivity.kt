@@ -19,28 +19,23 @@ class MainActivity : ComponentActivity() {
 
     private val requestMicPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) {
-                startListening()
-            } else {
-                Toast.makeText(this, "Microphone permission is required.", Toast.LENGTH_LONG).show()
-            }
+            if (granted) startListening()
+            else Toast.makeText(this, "Microphone permission is required.", Toast.LENGTH_LONG).show()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         status = TextView(this).apply {
-            text = "Ready. Start listening, then say: Jarvis"
-            textSize = 18f
+            text = "Ready. Start listening. Jarvis will calibrate the microphone first."
+            textSize = 17f
             setPadding(0, 24, 0, 24)
         }
-        startButton = Button(this).apply { text = "Start background listening" }
+        startButton = Button(this).apply { text = "Start and calibrate microphone" }
         stopButton = Button(this).apply { text = "Stop listening"; isEnabled = false }
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 48, 32, 32)
-            addView(TextView(this@MainActivity).apply {
-                text = "JARVIS PROTOTYPE"; textSize = 25f
-            })
+            addView(TextView(this@MainActivity).apply { text = "JARVIS PROTOTYPE"; textSize = 25f })
             addView(status)
             addView(startButton)
             addView(stopButton)
@@ -54,25 +49,19 @@ class MainActivity : ComponentActivity() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED) {
             requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
-        } else {
-            startListening()
-        }
+        } else startListening()
     }
 
     private fun startListening() {
-        val intent = Intent(this, WakeWordService::class.java).apply {
-            action = WakeWordService.ACTION_START
-        }
+        val intent = Intent(this, WakeWordService::class.java).apply { action = WakeWordService.ACTION_START }
         ContextCompat.startForegroundService(this, intent)
-        status.text = "Listening offline. Say: Jarvis"
+        status.text = "Calibrating microphone, then listening offline. Say Jarvis, then your command."
         startButton.isEnabled = false
         stopButton.isEnabled = true
     }
 
     private fun stopListening() {
-        startService(Intent(this, WakeWordService::class.java).apply {
-            action = WakeWordService.ACTION_STOP
-        })
+        startService(Intent(this, WakeWordService::class.java).apply { action = WakeWordService.ACTION_STOP })
         status.text = "Stopped."
         startButton.isEnabled = true
         stopButton.isEnabled = false
