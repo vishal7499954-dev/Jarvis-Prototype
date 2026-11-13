@@ -142,8 +142,12 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
         commandMode = true
         commandStartedAt = System.currentTimeMillis()
         recognizer?.close()
-        recognizer = Recognizer(model ?: error("Offline model is not loaded"), SAMPLE_RATE.toFloat()).apply {
-            setMaxAlternatives(3)
+        recognizer = Recognizer(
+            model ?: error("Offline model is not loaded"),
+            SAMPLE_RATE.toFloat(),
+            COMMAND_GRAMMAR
+        ).apply {
+            setMaxAlternatives(5)
         }
         speaking.set(true)
         addHistoryEntry("Jarvis", "Hello sir")
@@ -294,5 +298,6 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
         private const val SAMPLE_RATE = 16000
         private const val COMMAND_TIMEOUT_MS = 15000L
         private const val GREETING_ID = "jarvis-greeting"
+        private const val COMMAND_GRAMMAR = """["open settings","open the settings","open camera","open the camera","open whatsapp","open youtube","open chrome","open gallery","open photos","open calculator","open phone","open messages","open contacts","open clock","open play store","open bluetooth settings","open wi-fi settings","go back","go home","scroll down","scroll up","turn on wi-fi","turn off wi-fi","turn on bluetooth","turn off bluetooth","volume up","volume down","take a screenshot","what time is it","stop listening","[unk]"]"""
     }
 }
