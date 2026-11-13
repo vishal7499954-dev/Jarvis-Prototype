@@ -42,6 +42,11 @@ object AppCatalog {
     fun commandGrammar(context: Context): String {
         val phrases = JSONArray()
         builtInCommands.forEach { phrases.put(it) }
+        val aliases = context.getSharedPreferences(ALIAS_PREFS, Context.MODE_PRIVATE)
+            .all.keys.filterIsInstance<String>()
+        aliases.forEach { alias ->
+            if (alias.isNotBlank()) phrases.put("open $alias")
+        }
         scan(context).take(MAX_GRAMMAR_APPS).forEach { app ->
             val safeLabel = app.label.lowercase(Locale.US)
                 .replace(Regex("[^a-z0-9 ]"), " ")
@@ -64,6 +69,16 @@ object AppCatalog {
         return phrases.toString()
     }
 
+    fun saveAlias(context: Context, alias: String, appName: String): Boolean {
+        val cleanAlias = normalize(alias)
+        val cleanAppName = normalize(appName)
+        if (cleanAlias.isBlank() || cleanAppName.isBlank()) return false
+        val app = scan(context).firstOrNull { normalize(it.label) == cleanAppName } ?: return false
+        context.getSharedPreferences(ALIAS_PREFS, Context.MODE_PRIVATE)
+            .edit().putString(cleanAlias, app.packageName).apply()
+        return true
+    }
+
     /** Launch exact matches; offer suggestions for uncertain matches. */
     fun open(context: Context, requestedName: String): String {
         val query = normalize(requestedName)
@@ -71,7 +86,7 @@ object AppCatalog {
         val apps = scan(context)
         if (apps.isEmpty()) return "I couldn't find any launchable apps on this phone."
 
-        val scored = apps.map { app -> app to score(query, app) }
+        val scored = apps.map { app -> app to score(context, query, app) }
             .filter { it.second >= SUGGESTION_SCORE }
             .sortedByDescending { it.second }
         if (scored.isEmpty()) return "I couldn't find an app matching $requestedName."
@@ -100,7 +115,7 @@ object AppCatalog {
         }
     }
 
-    private fun score(query: String, app: InstalledApp): Int {
+    private fun score(context: Context, query: String, app: InstalledApp): Int {
         val label = normalize(app.label)
         val packageName = normalize(app.packageName.replace('.', ' '))
         val terms = linkedSetOf(label, packageName)
@@ -109,6 +124,9 @@ object AppCatalog {
         if (label.contains("whats")) terms.addAll(listOf("whatsapp", "whats"))
         if (label.contains("youtube")) terms.addAll(listOf("youtube", "yt"))
         if (label.contains("facebook")) terms.addAll(listOf("facebook", "fb"))
+        val aliases = context.getSharedPreferences(ALIAS_PREFS, Context.MODE_PRIVATE)
+            .all.filterValues { it == app.packageName }.keys.filterIsInstance<String>()
+        terms.addAll(aliases)
         if (terms.any { it == query }) return 100
         if (terms.any { it.startsWith(query) && query.length >= 3 }) return 90
         if (terms.any { it.contains(query) && query.length >= 4 }) return 82
@@ -140,6 +158,7 @@ object AppCatalog {
         return previous[b.length]
     }
 
+    private const val ALIAS_PREFS = "jarvis_app_aliases"
     private const val MAX_GRAMMAR_APPS = 150
     private const val SUGGESTION_SCORE = 55
     private const val EXACT_ENOUGH_SCORE = 80
