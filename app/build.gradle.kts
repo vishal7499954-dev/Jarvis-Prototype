@@ -45,6 +45,11 @@ val downloadVoskModel by tasks.registering {
     }
 }
 
+val signingStorePath = providers.environmentVariable("KEYSTORE_PATH").orNull
+val signingStorePassword = providers.environmentVariable("KEYSTORE_PASSWORD").orNull
+val signingKeyAlias = providers.environmentVariable("KEY_ALIAS").orNull
+val signingKeyPassword = providers.environmentVariable("KEY_PASSWORD").orNull
+
 android {
     namespace = "com.jarvis.prototype"
     compileSdk = 35
@@ -54,6 +59,19 @@ android {
         targetSdk = 32
         versionCode = 7
         versionName = "0.7.0"
+    }
+    signingConfigs {
+        create("release") {
+            storeFile = file(signingStorePath ?: "missing-release-keystore.jks")
+            storePassword = signingStorePassword
+            keyAlias = signingKeyAlias
+            keyPassword = signingKeyPassword
+        }
+    }
+    buildTypes {
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("release")
+        }
     }
     sourceSets["main"].assets.srcDir(generatedVoskAssets)
     compileOptions {
