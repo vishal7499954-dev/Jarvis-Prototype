@@ -47,7 +47,19 @@ object AppCatalog {
                 .replace(Regex("[^a-z0-9 ]"), " ")
                 .replace(Regex("\\s+"), " ")
                 .trim()
-            if (safeLabel.isNotBlank()) phrases.put("open $safeLabel")
+            if (safeLabel.isNotBlank()) {
+                phrases.put("open $safeLabel")
+                if (safeLabel.contains("insta")) {
+                    phrases.put("open instagram")
+                    phrases.put("open insta")
+                }
+                if (safeLabel.contains("whats")) {
+                    phrases.put("open whatsapp")
+                    phrases.put("open whats")
+                }
+                if (safeLabel.contains("youtube")) phrases.put("open yt")
+                if (safeLabel.contains("facebook")) phrases.put("open fb")
+            }
         }
         return phrases.toString()
     }
