@@ -52,8 +52,8 @@ android {
         applicationId = "com.jarvis.prototype"
         minSdk = 26
         targetSdk = 32
-        versionCode = 5
-        versionName = "0.5.0"
+        versionCode = 6
+        versionName = "0.6.0"
     }
     sourceSets["main"].assets.srcDir(generatedVoskAssets)
     compileOptions {
