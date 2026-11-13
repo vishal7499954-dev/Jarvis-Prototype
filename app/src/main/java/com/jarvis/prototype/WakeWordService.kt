@@ -125,7 +125,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
         commandMode = true
         commandStartedAt = System.currentTimeMillis()
         recognizer?.close()
-        recognizer = Recognizer(model, SAMPLE_RATE.toFloat())
+        recognizer = Recognizer(model ?: error("Offline model is not loaded"), SAMPLE_RATE.toFloat())
         if (!speaking.compareAndSet(false, true)) speaking.set(false)
         android.os.Handler(mainLooper).post {
             if (ttsReady) {
@@ -140,7 +140,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
     private fun switchToWakeWordMode() {
         commandMode = false
         recognizer?.close()
-        recognizer = Recognizer(model, SAMPLE_RATE.toFloat(), """["jarvis", "[unk]"]""")
+        recognizer = Recognizer(model ?: error("Offline model is not loaded"), SAMPLE_RATE.toFloat(), """["jarvis", "[unk]"]""")
     }
 
     override fun onInit(status: Int) {
