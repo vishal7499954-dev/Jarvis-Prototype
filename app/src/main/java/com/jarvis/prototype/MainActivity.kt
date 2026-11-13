@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.provider.Settings
+import android.net.Uri
+import android.os.PowerManager
 import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
@@ -38,6 +40,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var stopButton: Button
     private lateinit var sampleButton: Button
     private lateinit var accessibilityButton: Button
+    private lateinit var batteryButton: Button
     private lateinit var historyScroll: ScrollView
 
     @Volatile private var sampleRecording = false
@@ -90,6 +93,10 @@ class MainActivity : ComponentActivity() {
             text = "Enable background control"
         }
         root.addView(accessibilityButton)
+        batteryButton = Button(this).apply {
+            text = "Allow Jarvis to run without battery restrictions"
+        }
+        root.addView(batteryButton)
         root.addView(TextView(this).apply {
             text = "Enable Jarvis under Installed apps in Accessibility settings to allow voice-triggered system actions while the app is in the background."
             textSize = 12f
@@ -144,6 +151,20 @@ class MainActivity : ComponentActivity() {
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             } catch (_: Exception) {
                 Toast.makeText(this, "Could not open Accessibility settings.", Toast.LENGTH_LONG).show()
+            }
+        }
+        batteryButton.setOnClickListener {
+            try {
+                val power = getSystemService(POWER_SERVICE) as PowerManager
+                if (power.isIgnoringBatteryOptimizations(packageName)) {
+                    Toast.makeText(this, "Jarvis is already exempt from battery optimization.", Toast.LENGTH_LONG).show()
+                } else {
+                    startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        data = Uri.parse("package:$packageName")
+                    })
+                }
+            } catch (_: Exception) {
+                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
             }
         }
         sampleButton.setOnClickListener { startVerifiedSample() }
